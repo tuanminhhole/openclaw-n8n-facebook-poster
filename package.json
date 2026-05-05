@@ -1,0 +1,31 @@
+{
+  "name": "n8n-facebook-poster",
+  "version": "2.5.1",
+  "description": "Send Facebook posts to N8N webhook with drafting support",
+  "main": "index.js",
+  "author": "Luna",
+  "type": "module",
+  "exports": "./index.js",
+  "sideEffects": false,
+  "files": [
+    "index.js",
+    "openclaw.plugin.json"
+  ],
+  "openclaw": {
+    "extensions": [
+      "./index.js"
+    ],
+    "compat": {
+      "pluginApi": ">=2026.3.24",
+      "minGatewayVersion": "2026.3.24"
+    },
+    "build": {
+      "entry": "./index.js",
+      "openclawVersion": "2026.3.24",
+      "pluginSdkVersion": "2026.3.24"
+    }
+  },
+  "peerDependencies": {
+    "openclaw": "*"
+  }
+}

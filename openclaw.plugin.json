@@ -1,0 +1,26 @@
+{
+  "id": "n8n-facebook-poster",
+  "name": "N8n Facebook Poster",
+  "description": "Zalo bot plugin for creating and staging Facebook/Threads posts to N8N webhook.",
+  "version": "2.5.1",
+  "kind": "runtime",
+  "enabledByDefault": true,
+  "runtimeId": "n8n-facebook-poster",
+  "capabilityTags": [
+    "facebook",
+    "n8n",
+    "automation",
+    "zalo"
+  ],
+  "configSchema": {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": true
+  },
+  "skills": [],
+  "providers": [],
+  "channels": [],
+  "activation": {
+    "onStartup": true
+  }
+}
