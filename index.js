@@ -181,7 +181,7 @@ const plugin = definePluginEntry({
       if (isCommand && config.adminIds.length === 0 && senderId) {
         config.adminIds.push(senderId);
         saveConfig();
-        await sendMsg(ctx, rawConvId, isGroupMsg, `👋 Chào bạn, bạn đã trở thành Admin của plugin n8n-facebook-poster.\n\n⚠️ Bạn cần thiết lập N8N Webhook URL để bắt đầu.\nHãy gửi lệnh: /set-webhook <URL_CUA_BAN>`);
+        await sendMsg(ctx, rawConvId, isGroupMsg, `👋 Chào bạn, bạn đã trở thành Admin của plugin openclaw-n8n-facebook-poster.\n\n⚠️ Bạn cần thiết lập N8N Webhook URL để bắt đầu.\nHãy gửi lệnh: /set-webhook <URL_CUA_BAN>`);
         return { handled: true };
       }
 
@@ -271,7 +271,7 @@ const plugin = definePluginEntry({
           saveDraftRecord(contentDir, draft, publicUrls);
 
           // ---- BƯỚC 2: Gửi sang n8n với public URLs ----
-          const webhook = config.webhookUrl || process.env.N8N_WEBHOOK_URL || 'http://host.docker.internal:5678/webhook/luna-post-fb';
+          const webhook = config.webhookUrl || 'http://host.docker.internal:5678/webhook/luna-post-fb';
 
           try {
             const payload = {
@@ -429,7 +429,7 @@ const plugin = definePluginEntry({
         let config = { webhookUrl: '' };
         try { config = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8')); } catch(e) {}
 
-        const n8nUrl = config.webhookUrl || process.env.N8N_WEBHOOK_URL || 'http://host.docker.internal:5678/webhook/luna-post-fb';
+        const n8nUrl = config.webhookUrl || 'http://host.docker.internal:5678/webhook/luna-post-fb';
 
         // --- Convert Zalo URLs → Telegraph CDN ---
         async function _download(url) {
