@@ -1,4 +1,10 @@
 import { definePluginEntry } from 'openclaw/plugin-sdk/plugin-entry';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const plugin = definePluginEntry({
   id: 'openclaw-n8n-facebook-poster',
@@ -7,8 +13,6 @@ const plugin = definePluginEntry({
   kind: 'runtime',
 
   register(api) {
-    const fs = require('fs');
-    const path = require('path');
     const drafts = new Map();
     const configPath = path.join(__dirname, 'config.json');
 
@@ -424,8 +428,6 @@ const plugin = definePluginEntry({
         required: ['content']
       },
       execute: async (args, context) => {
-        const fs = require('fs');
-        const path = require('path');
         let config = { webhookUrl: '' };
         try { config = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8')); } catch(e) {}
 
