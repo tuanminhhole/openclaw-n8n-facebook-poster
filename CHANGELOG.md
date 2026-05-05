@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.5.7] - 2026-05-06
+
+### Fixed
+
+- Removed deprecated `kind: "runtime"` from the plugin entry and manifest for OpenClaw v2026.5.x compatibility.
+- Added `activation.onCapabilities: ["hook"]` so the startup planner explicitly treats the plugin as a hook plugin.
+
 ## [2.5.6] - 2026-05-05
 
 ### Fixed
