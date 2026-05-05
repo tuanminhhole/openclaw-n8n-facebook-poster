@@ -1,6 +1,6 @@
 {
   "name": "openclaw-n8n-facebook-poster",
-  "version": "2.5.5",
+  "version": "2.5.6",
   "description": "Send Facebook posts to N8N webhook with drafting support",
   "main": "index.js",
   "author": "tuanminhhole",
@@ -9,7 +9,9 @@
   "sideEffects": false,
   "files": [
     "index.js",
-    "openclaw.plugin.json"
+    "openclaw.plugin.json",
+    "package.json",
+    "README.md"
   ],
   "openclaw": {
     "extensions": [

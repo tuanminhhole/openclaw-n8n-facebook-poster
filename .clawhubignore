@@ -1,0 +1,9 @@
+.agent/
+content/
+config.json
+.gitignore
+.clawhubignore
+CHANGELOG.md
+_tmp_*
+*.tgz
+npm-debug.log*

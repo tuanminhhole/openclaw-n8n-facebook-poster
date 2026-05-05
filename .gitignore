@@ -1,5 +1,6 @@
 node_modules/
 .env
+config.json
 content/
 _tmp_*
 .agent/
