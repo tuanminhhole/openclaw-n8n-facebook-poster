@@ -1,7 +1,7 @@
 import { definePluginEntry } from 'openclaw/plugin-sdk/plugin-entry';
 
 const plugin = definePluginEntry({
-  id: 'n8n-facebook-poster',
+  id: 'openclaw-n8n-facebook-poster',
   name: 'N8n Facebook Poster',
   description: 'Gom bài viết và hình ảnh từ Zalo để đăng lên Facebook qua hệ thống n8n.',
   kind: 'runtime',

@@ -1,0 +1,5 @@
+node_modules/
+.env
+content/
+_tmp_*
+.agent/
