@@ -178,9 +178,11 @@ const plugin = definePluginEntry({
       const isCommand = content.startsWith('/');
 
       // Auto-claim admin for the first command user if admin list is empty
-      if (isCommand && config.adminIds.length === 0) {
+      if (isCommand && config.adminIds.length === 0 && senderId) {
         config.adminIds.push(senderId);
         saveConfig();
+        await sendMsg(ctx, rawConvId, isGroupMsg, `👋 Chào bạn, bạn đã trở thành Admin của plugin n8n-facebook-poster.\n\n⚠️ Bạn cần thiết lập N8N Webhook URL để bắt đầu.\nHãy gửi lệnh: /set-webhook <URL_CUA_BAN>`);
+        return { handled: true };
       }
 
       const isAdmin = config.adminIds.includes(senderId) || (api.config && api.config.ownerId === senderId);
@@ -198,6 +200,12 @@ const plugin = definePluginEntry({
           } else {
             await sendMsg(ctx, rawConvId, isGroupMsg, `⚠️ Cú pháp: /set-webhook <url>`);
           }
+          return { handled: true };
+        }
+
+        // Nếu admin dùng lệnh khác nhưng chưa set webhook thì chặn lại nhắc nhở
+        if (!config.webhookUrl && cmd !== '/help') {
+          await sendMsg(ctx, rawConvId, isGroupMsg, `⚠️ N8N Webhook URL chưa được thiết lập.\nHãy gửi lệnh: /set-webhook <URL_CUA_BAN>`);
           return { handled: true };
         }
 
