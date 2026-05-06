@@ -16,10 +16,11 @@ const plugin = definePluginEntry({
     const drafts = new Map();
     const configPath = path.join(__dirname, 'config.json');
 
-    let config = { webhookUrl: '', adminIds: [] };
+    let config = { webhookUrl: '', webhooks: {}, adminIds: [] };
     try {
       if (fs.existsSync(configPath)) {
         config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+        if (!config.webhooks) config.webhooks = {};
       }
     } catch(e) {}
 
@@ -201,13 +202,23 @@ const plugin = definePluginEntry({
         const cmd = args[0].toLowerCase();
 
         if (cmd === '/set-webhook') {
-          const url = args[1];
-          if (url && url.startsWith('http')) {
-            config.webhookUrl = url;
-            saveConfig();
-            await sendMsg(ctx, rawConvId, isGroupMsg, `✅ Đã cập nhật Webhook URL:\n${url}`);
+          let key = 'default';
+          let url = '';
+          if (args.length >= 3) {
+            key = args[1];
+            url = args[2];
           } else {
-            await sendMsg(ctx, rawConvId, isGroupMsg, `⚠️ Cú pháp: /set-webhook <url>`);
+            url = args[1];
+          }
+          
+          if (url && url.startsWith('http')) {
+            config.webhooks = config.webhooks || {};
+            config.webhooks[key] = url;
+            if (key === 'default') config.webhookUrl = url; // backward compat
+            saveConfig();
+            await sendMsg(ctx, rawConvId, isGroupMsg, `✅ Đã cập nhật Webhook URL [${key}]:\n${url}`);
+          } else {
+            await sendMsg(ctx, rawConvId, isGroupMsg, `⚠️ Cú pháp: /set-webhook [key] <url>\nVí dụ: /set-webhook page https://...`);
           }
           return { handled: true };
         }
@@ -220,11 +231,11 @@ const plugin = definePluginEntry({
             files: [],
             localFiles: []
           });
-          await sendMsg(ctx, rawConvId, isGroupMsg, `📝 Đã bắt đầu soạn bài cho kênh: ${channels}.\nHãy gửi nội dung và hình ảnh (có thể gửi nhiều lần).\nGõ /post-send để đăng, /post-cancel để hủy.`);
+          await sendMsg(ctx, rawConvId, isGroupMsg, `📝 Đã bắt đầu soạn bài cho kênh: ${channels}.\nHãy gửi nội dung và hình ảnh (có thể gửi nhiều lần).\nGõ /post-send [key] để đăng, /post-cancel để hủy.`);
           return { handled: true };
         }
 
-        if (cmd === '/post-cancel') {
+        if (cmd === '/post-cancel' || cmd === '/post-cancle' || cmd === '/post-huy') {
           if (drafts.has(rawConvId)) {
             drafts.delete(rawConvId);
             await sendMsg(ctx, rawConvId, isGroupMsg, `🚫 Đã hủy bản thảo.`);
@@ -235,14 +246,19 @@ const plugin = definePluginEntry({
         }
 
         if (cmd === '/post-send') {
+          const key = args[1] || 'default';
           const draft = drafts.get(rawConvId);
           if (!draft) {
             await sendMsg(ctx, rawConvId, isGroupMsg, `⚠️ Không có bản thảo nào đang soạn. Gõ /post-start để bắt đầu.`);
             return { handled: true };
           }
 
-          if (!config.webhookUrl) {
-            await sendMsg(ctx, rawConvId, isGroupMsg, `⚠️ N8N Webhook URL chưa được thiết lập.\nHãy gửi lệnh: /set-webhook <URL_CUA_BAN>`);
+          config.webhooks = config.webhooks || {};
+          let webhook = config.webhooks[key];
+          if (!webhook && key === 'default') webhook = config.webhookUrl;
+
+          if (!webhook) {
+            await sendMsg(ctx, rawConvId, isGroupMsg, `⚠️ N8N Webhook URL cho [${key}] chưa được thiết lập.\nHãy gửi lệnh: /set-webhook ${key !== 'default' ? key + ' ' : ''}<URL_CUA_BAN>`);
             return { handled: true };
           }
 
@@ -279,7 +295,7 @@ const plugin = definePluginEntry({
           saveDraftRecord(contentDir, draft, publicUrls);
 
           // ---- BƯỚC 2: Gửi sang n8n với public URLs ----
-          const webhook = config.webhookUrl || 'http://host.docker.internal:5678/webhook/luna-post-fb';
+          const webhookUrlTarget = webhook || 'http://host.docker.internal:5678/webhook/luna-post-fb';
 
           try {
             const payload = {
@@ -288,7 +304,7 @@ const plugin = definePluginEntry({
               files: publicUrls.join(',')
             };
 
-            const res = await fetch(webhook, {
+            const res = await fetch(webhookUrlTarget, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(payload)

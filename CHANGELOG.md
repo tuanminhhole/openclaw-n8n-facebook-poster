@@ -1,3 +1,10 @@
+## [3.0.0] - 2026-05-06
+
+### Added
+- Multi-webhook support: /set-webhook [key] <url> lưu webhook theo key.
+- /post-send [key] chọn webhook theo key khi gửi.
+- Alias /post-cancle và /post-huy cho lệnh hủy bản thảo.
+
 # Changelog
 
 All notable changes to this project will be documented in this file.
