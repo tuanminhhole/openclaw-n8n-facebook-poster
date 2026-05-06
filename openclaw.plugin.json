@@ -2,7 +2,7 @@
   "id": "openclaw-n8n-facebook-poster",
   "name": "N8n Facebook Poster",
   "description": "Zalo bot plugin for creating and staging Facebook/Threads posts to N8N webhook.",
-  "version": "2.5.7",
+  "version": "2.5.8",
   "enabledByDefault": true,
   "runtimeId": "openclaw-n8n-facebook-poster",
   "capabilityTags": [

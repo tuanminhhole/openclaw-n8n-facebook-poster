@@ -164,6 +164,9 @@ const plugin = definePluginEntry({
             profile: ctx?.accountId || 'default',
             textMode: 'markdown'
           });
+          console.log(`[n8n-poster] sent reply to ${isGroup ? 'group' : 'dm'} ${targetId}`);
+        } else {
+          console.error('[n8n-poster] sendMessageZalouser API not found');
         }
       } catch (err) {
         console.error('[n8n-poster] Send message error:', err);
@@ -179,6 +182,7 @@ const plugin = definePluginEntry({
       const senderId = String(ctx.senderId || event.senderId || '');
 
       const isCommand = content.startsWith('/');
+      if (isCommand) console.log(`[n8n-poster] command="${content}" sender=${senderId} conv=${rawConvId}`);
 
       // Auto-claim admin for the first command user if admin list is empty
       if (isCommand && config.adminIds.length === 0 && senderId) {
@@ -203,12 +207,6 @@ const plugin = definePluginEntry({
           } else {
             await sendMsg(ctx, rawConvId, isGroupMsg, `⚠️ Cú pháp: /set-webhook <url>`);
           }
-          return { handled: true };
-        }
-
-        // Nếu admin dùng lệnh khác nhưng chưa set webhook thì chặn lại nhắc nhở
-        if (!config.webhookUrl && cmd !== '/help') {
-          await sendMsg(ctx, rawConvId, isGroupMsg, `⚠️ N8N Webhook URL chưa được thiết lập.\nHãy gửi lệnh: /set-webhook <URL_CUA_BAN>`);
           return { handled: true };
         }
 
@@ -238,6 +236,11 @@ const plugin = definePluginEntry({
           const draft = drafts.get(rawConvId);
           if (!draft) {
             await sendMsg(ctx, rawConvId, isGroupMsg, `⚠️ Không có bản thảo nào đang soạn. Gõ /post-start để bắt đầu.`);
+            return { handled: true };
+          }
+
+          if (!config.webhookUrl) {
+            await sendMsg(ctx, rawConvId, isGroupMsg, `⚠️ N8N Webhook URL chưa được thiết lập.\nHãy gửi lệnh: /set-webhook <URL_CUA_BAN>`);
             return { handled: true };
           }
 

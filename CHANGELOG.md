@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.5.8] - 2026-05-06
+
+### Fixed
+
+- Allow `/post-start` to create a draft before the N8N webhook is configured; webhook configuration is now required when `/post-send` is used.
+- Add command and send-result logs so Zalo hook delivery can be verified from container logs.
+
 ## [2.5.7] - 2026-05-06
 
 ### Fixed
