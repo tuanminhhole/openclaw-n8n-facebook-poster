@@ -1,10 +1,11 @@
 import { definePluginEntry } from 'openclaw/plugin-sdk/plugin-entry';
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const openclawHome = path.resolve(__dirname, '..', '..');
 
 const plugin = definePluginEntry({
   id: 'openclaw-n8n-facebook-poster',
@@ -142,6 +143,7 @@ const plugin = definePluginEntry({
     async function sendMsg(ctx, conversationId, isGroup, text) {
       try {
         const paths = [
+          pathToFileURL(path.join(openclawHome, 'npm/node_modules/@openclaw/zalouser/dist/test-api.js')).href,
           'file:///usr/local/lib/node_modules/openclaw/dist/extensions/zalouser/test-api.js',
           'openclaw/dist/extensions/zalouser/test-api.js'
         ];

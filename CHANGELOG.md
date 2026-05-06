@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.5.9] - 2026-05-06
+
+### Fixed
+
+- Resolve the installed `@openclaw/zalouser` send API from the container's `.openclaw/npm/node_modules` path so `/post-start` and other poster commands can reply in Zalo.
+
 ## [2.5.8] - 2026-05-06
 
 ### Fixed
