@@ -7,3 +7,4 @@ CHANGELOG.md
 _tmp_*
 *.tgz
 npm-debug.log*
+docs/

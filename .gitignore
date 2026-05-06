@@ -4,3 +4,4 @@ config.json
 content/
 _tmp_*
 .agent/
+docs/
