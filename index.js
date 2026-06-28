@@ -63,8 +63,11 @@ const plugin = definePluginEntry({
         if (contentType.includes('png')) ext = '.png';
         else if (contentType.includes('gif')) ext = '.gif';
         else if (contentType.includes('webp')) ext = '.webp';
+        else if (contentType.includes('mp4')) ext = '.mp4';
+        else if (url.includes('.mp4')) ext = '.mp4';
 
-        const filename = `img_${Date.now()}_${Math.random().toString(36).slice(2, 7)}${ext}`;
+        const prefix = ext === '.mp4' ? 'vid' : 'img';
+        const filename = `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}${ext}`;
         const dest = path.join(destDir, filename);
 
         const arrayBuffer = await res.arrayBuffer();
@@ -83,7 +86,7 @@ const plugin = definePluginEntry({
     async function uploadToTelegraph(filePath, ext) {
       try {
         const fileBuffer = fs.readFileSync(filePath);
-        const mimeMap = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif', '.webp': 'image/webp' };
+        const mimeMap = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif', '.webp': 'image/webp', '.mp4': 'video/mp4' };
         const mime = mimeMap[ext] || 'image/jpeg';
 
         // Tạo FormData thủ công (multipart/form-data)
@@ -176,6 +179,92 @@ const plugin = definePluginEntry({
       }
     }
 
+    function parseScheduleTime(timeStr) {
+      const regex = /^(\d{1,2}):(\d{1,2})(?:\s+(\d{1,2})\/(\d{1,2})(?:\/(\d{4}))?)?$/;
+      const match = timeStr.trim().match(regex);
+      if (!match) return null;
+
+      const hours = parseInt(match[1], 10);
+      const minutes = parseInt(match[2], 10);
+      const day = match[3] ? parseInt(match[3], 10) : null;
+      const month = match[4] ? parseInt(match[4], 10) : null;
+      const year = match[5] ? parseInt(match[5], 10) : new Date().getFullYear();
+
+      const target = new Date();
+      if (day && month) {
+        target.setFullYear(year, month - 1, day);
+        target.setHours(hours, minutes, 0, 0);
+      } else {
+        target.setHours(hours, minutes, 0, 0);
+        if (target.getTime() <= Date.now()) {
+          target.setDate(target.getDate() + 1);
+        }
+      }
+      return target;
+    }
+
+    async function executePostSend(draft, webhookTarget, rawConvId, isGroupMsg, ctx) {
+      let schedulePrefix = draft.scheduleTime ? `[⏰ Hẹn giờ tới] ` : '';
+      await sendMsg(ctx, rawConvId, isGroupMsg, `${schedulePrefix}⏳ Đang xử lý phương tiện (download + upload media lên CDN)...`);
+
+      const contentDir = getContentDir();
+      const publicUrls = [];
+
+      for (const originalUrl of draft.files) {
+        const downloaded = await downloadImage(originalUrl, contentDir);
+        if (downloaded) {
+          draft.localFiles.push(downloaded.path);
+          const publicUrl = await uploadToTelegraph(downloaded.path, downloaded.ext);
+          if (publicUrl) {
+            publicUrls.push(publicUrl);
+          } else {
+            publicUrls.push(originalUrl);
+          }
+        } else {
+          publicUrls.push(originalUrl);
+        }
+      }
+
+      saveDraftRecord(contentDir, draft, publicUrls);
+
+      const webhookUrlTarget = webhookTarget || 'http://host.docker.internal:5678/webhook/luna-post-fb';
+
+      try {
+        const payload = {
+          content: draft.contentParts.join('\n\n'),
+          channels: draft.channels,
+          type: draft.postType || 'Text with Media',
+          owner: ctx?.botName || ctx?.accountId || 'Bot',
+          files: publicUrls.join(',')
+        };
+
+        const res = await fetch(webhookUrlTarget, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const respText = await res.text();
+
+        if (res.ok) {
+          let scheduleMsg = draft.scheduleTime ? `\n⏰ Hẹn giờ: ${draft.scheduleTime}` : '\n⚡ Đăng ngay';
+          await sendMsg(ctx, rawConvId, isGroupMsg,
+            `✅ Đã gửi bài viết sang n8n thành công.${scheduleMsg}\n` +
+            `📺 Kênh: ${draft.channels}\n` +
+            `📝 Nội dung: ${draft.contentParts.length} đoạn\n` +
+            `🖼️ Media: ${publicUrls.length} file\n` +
+            `💾 Đã lưu local: content/${new Date().toISOString().slice(0, 10)}/`
+          );
+          drafts.delete(rawConvId);
+        } else {
+          await sendMsg(ctx, rawConvId, isGroupMsg, `❌ Lỗi từ n8n (HTTP ${res.status}):\n${respText}`);
+          draft.state = 'DRAFTING';
+        }
+      } catch (err) {
+        await sendMsg(ctx, rawConvId, isGroupMsg, `❌ Lỗi kết nối: ${err.message}\nHãy kiểm tra lại n8n hoặc Webhook URL.`);
+        draft.state = 'DRAFTING';
+      }
+    }
+
     api.on('before_dispatch', async (event, ctx) => {
       if (ctx?.channelId !== 'zalouser') return;
 
@@ -224,14 +313,36 @@ const plugin = definePluginEntry({
         }
 
         if (cmd === '/post-start') {
-          const channels = args[1] || 'Fb';
-          drafts.set(rawConvId, {
-            channels: channels,
-            contentParts: [],
-            files: [],
-            localFiles: []
-          });
-          await sendMsg(ctx, rawConvId, isGroupMsg, `📝 Đã bắt đầu soạn bài cho kênh: ${channels}.\nHãy gửi nội dung và hình ảnh (có thể gửi nhiều lần).\nGõ /post-send [key] để đăng, /post-cancel để hủy.`);
+          const inputChannel = content.substring('/post-start'.length).trim();
+          let channelToSet = '';
+          
+          if (inputChannel) {
+             const lower = inputChannel.toLowerCase();
+             if (lower.includes('group') || lower === '1') channelToSet = 'Fb Group';
+             else if (lower.includes('page') || lower === '2') channelToSet = 'Fb Page';
+             else if (lower.includes('profile') || lower === '3') channelToSet = 'Fb Profile';
+             else channelToSet = inputChannel;
+          }
+
+          if (channelToSet) {
+            drafts.set(rawConvId, {
+              state: 'WAITING_TYPE',
+              channels: channelToSet,
+              contentParts: [],
+              files: [],
+              localFiles: []
+            });
+            await sendMsg(ctx, rawConvId, isGroupMsg, `📝 Đã chọn kênh: ${channelToSet}.\n\nVui lòng chọn LOẠI bài đăng:\n1. Text with Media\n2. Text Only\n3. Text with Preview URL\n4. Text with Background\n5. Text with Background and Media\n(Gõ 1, 2, 3, 4 hoặc 5)`);
+          } else {
+            drafts.set(rawConvId, {
+              state: 'WAITING_CHANNEL',
+              channels: '',
+              contentParts: [],
+              files: [],
+              localFiles: []
+            });
+            await sendMsg(ctx, rawConvId, isGroupMsg, `Vui lòng chọn kênh muốn đăng:\n1. Fb Group\n2. Fb Page\n3. Fb Profile\n(Gõ 1, 2, hoặc 3)`);
+          }
           return { handled: true };
         }
 
@@ -267,65 +378,11 @@ const plugin = definePluginEntry({
             return { handled: true };
           }
 
-          await sendMsg(ctx, rawConvId, isGroupMsg, `⏳ Đang xử lý ảnh (download + upload lên CDN công khai)...`);
-
-          // ---- BƯỚC 1: Download ảnh về local + re-upload lên Telegraph ----
-          const contentDir = getContentDir();
-          const publicUrls = [];
-
-          for (const originalUrl of draft.files) {
-            const downloaded = await downloadImage(originalUrl, contentDir);
-            if (downloaded) {
-              draft.localFiles.push(downloaded.path);
-              // Re-upload lên Telegraph để lấy public URL
-              const publicUrl = await uploadToTelegraph(downloaded.path, downloaded.ext);
-              if (publicUrl) {
-                publicUrls.push(publicUrl);
-              } else {
-                // Fallback: dùng URL gốc nếu upload Telegraph thất bại
-                publicUrls.push(originalUrl);
-              }
-            } else {
-              // Không download được → thử dùng URL gốc
-              publicUrls.push(originalUrl);
-            }
-          }
-
-          // Lưu bản ghi JSON để dễ truy lục
-          saveDraftRecord(contentDir, draft, publicUrls);
-
-          // ---- BƯỚC 2: Gửi sang n8n với public URLs ----
-          const webhookUrlTarget = webhook || 'http://host.docker.internal:5678/webhook/luna-post-fb';
-
-          try {
-            const payload = {
-              content: draft.contentParts.join('\n\n'),
-              channels: draft.channels,
-              files: publicUrls.join(',')
-            };
-
-            const res = await fetch(webhookUrlTarget, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(payload)
-            });
-            const respText = await res.text();
-
-            if (res.ok) {
-              await sendMsg(ctx, rawConvId, isGroupMsg,
-                `✅ Đã gửi bài viết sang n8n thành công.\n` +
-                `📺 Kênh: ${draft.channels}\n` +
-                `📝 Nội dung: ${draft.contentParts.length} đoạn\n` +
-                `🖼️ Hình ảnh: ${publicUrls.length} file\n` +
-                `💾 Đã lưu local: content/${new Date().toISOString().slice(0, 10)}/`
-              );
-              drafts.delete(rawConvId);
-            } else {
-              await sendMsg(ctx, rawConvId, isGroupMsg, `❌ Lỗi từ n8n (HTTP ${res.status}):\n${respText}`);
-            }
-          } catch (err) {
-            await sendMsg(ctx, rawConvId, isGroupMsg, `❌ Lỗi kết nối: ${err.message}\nHãy kiểm tra lại n8n hoặc Webhook URL.`);
-          }
+          draft.sendKey = key;
+          draft.webhookTarget = webhook;
+          draft.state = 'WAITING_TIME';
+          
+          await sendMsg(ctx, rawConvId, isGroupMsg, `🕒 Bạn muốn đăng khi nào?\n1. Đăng ngay\n2. Hẹn giờ đăng (nhập thời gian, vd: "14:30 15/05/2026" hoặc "14:30")\n\n(Nhập 1 để đăng ngay, hoặc nhập thời gian để hẹn giờ)`);
           return { handled: true };
         }
 
@@ -377,6 +434,92 @@ const plugin = definePluginEntry({
       // Accumulate drafting content
       if (drafts.has(rawConvId) && isAdmin) {
         const draft = drafts.get(rawConvId);
+
+        if (draft.state === 'WAITING_CHANNEL') {
+          const channelInput = content.trim();
+          let channelToSet = '';
+          if (channelInput === '1' || channelInput.toLowerCase() === 'fb group') channelToSet = 'Fb Group';
+          else if (channelInput === '2' || channelInput.toLowerCase() === 'fb page') channelToSet = 'Fb Page';
+          else if (channelInput === '3' || channelInput.toLowerCase() === 'fb profile') channelToSet = 'Fb Profile';
+          
+          if (channelToSet) {
+            draft.state = 'WAITING_TYPE';
+            draft.channels = channelToSet;
+            await sendMsg(ctx, rawConvId, isGroupMsg, `📝 Đã chọn kênh: ${channelToSet}.\n\nVui lòng chọn LOẠI bài đăng:\n1. Text with Media\n2. Text Only\n3. Text with Preview URL\n4. Text with Background\n5. Text with Background and Media\n(Gõ 1, 2, 3, 4 hoặc 5. Gõ /post-cancel để hủy)`);
+          } else {
+            await sendMsg(ctx, rawConvId, isGroupMsg, `⚠️ Lựa chọn không hợp lệ.\nVui lòng chọn kênh muốn đăng:\n1. Fb Group\n2. Fb Page\n3. Fb Profile\n(Gõ 1, 2, hoặc 3. Gõ /post-cancel để hủy)`);
+          }
+          return { handled: true };
+        }
+
+        if (draft.state === 'WAITING_TYPE') {
+          const typeInput = content.trim();
+          let typeToSet = '';
+          if (typeInput === '1') typeToSet = 'Text with Media';
+          else if (typeInput === '2') typeToSet = 'Text Only';
+          else if (typeInput === '3') typeToSet = 'Text with Preview URL';
+          else if (typeInput === '4') typeToSet = 'Text with Background';
+          else if (typeInput === '5') typeToSet = 'Text with Background and Media';
+          else {
+            const lower = typeInput.toLowerCase();
+            if (lower.includes('only')) typeToSet = 'Text Only';
+            else if (lower.includes('preview')) typeToSet = 'Text with Preview URL';
+            else if (lower.includes('background') && lower.includes('media')) typeToSet = 'Text with Background and Media';
+            else if (lower.includes('background')) typeToSet = 'Text with Background';
+            else if (lower.includes('media')) typeToSet = 'Text with Media';
+          }
+
+          if (typeToSet) {
+            draft.state = 'DRAFTING';
+            draft.postType = typeToSet;
+            await sendMsg(ctx, rawConvId, isGroupMsg, `📝 Đã chọn loại: ${typeToSet}.\nHãy gửi nội dung và hình ảnh (có thể gửi nhiều lần).\nGõ /post-send [key] để đăng, /post-cancel để hủy.`);
+          } else {
+            await sendMsg(ctx, rawConvId, isGroupMsg, `⚠️ Lựa chọn không hợp lệ.\nVui lòng chọn loại bài đăng:\n1. Text with Media\n2. Text Only\n3. Text with Preview URL\n4. Text with Background\n5. Text with Background and Media\n(Gõ 1, 2, 3, 4 hoặc 5. Gõ /post-cancel để hủy)`);
+          }
+          return { handled: true };
+        }
+
+        if (draft.state === 'WAITING_TIME') {
+           const timeInput = content.trim();
+           if (timeInput === '1' || timeInput.toLowerCase() === 'đăng ngay' || timeInput.toLowerCase() === 'dang ngay') {
+              draft.scheduleTime = '';
+              draft.state = 'SENDING';
+              await executePostSend(draft, draft.webhookTarget, rawConvId, isGroupMsg, ctx);
+           } else {
+              const targetTime = parseScheduleTime(timeInput);
+              if (!targetTime) {
+                 await sendMsg(ctx, rawConvId, isGroupMsg, `⚠️ Định dạng thời gian không hợp lệ.\nVui lòng nhập "HH:mm" hoặc "HH:mm DD/MM/YYYY"\n(VD: 14:30 hoặc 14:30 15/05/2026).\nHoặc nhập 1 để đăng ngay.`);
+                 return { handled: true };
+              }
+              
+              const delay = targetTime.getTime() - Date.now();
+              if (delay <= 0) {
+                 await sendMsg(ctx, rawConvId, isGroupMsg, `⚠️ Thời gian đã qua. Vui lòng chọn thời gian trong tương lai.`);
+                 return { handled: true };
+              }
+              if (delay > 2147483647) {
+                 await sendMsg(ctx, rawConvId, isGroupMsg, `⚠️ Thời gian hẹn quá xa (tối đa 24 ngày). Vui lòng chọn thời gian gần hơn.`);
+                 return { handled: true };
+              }
+
+              draft.scheduleTime = targetTime.toLocaleString('vi-VN');
+              draft.state = 'SCHEDULED';
+              
+              await sendMsg(ctx, rawConvId, isGroupMsg, `✅ Đã lên lịch đăng lúc: ${draft.scheduleTime}.\nHệ thống sẽ tự động đăng vào lúc đó.`);
+              
+              setTimeout(() => {
+                 executePostSend(draft, draft.webhookTarget, rawConvId, isGroupMsg, ctx).catch(console.error);
+              }, delay);
+
+              drafts.delete(rawConvId);
+           }
+           return { handled: true };
+        }
+
+        if (draft.state !== 'DRAFTING') {
+           return { handled: true };
+        }
+
         let addedSomething = false;
 
         // 1. Check attachments (Zalo native)
@@ -386,7 +529,8 @@ const plugin = definePluginEntry({
             if (att.url && (
               att.type === 'image' ||
               att.type === 'photo' ||
-              att.url.match(/\.(jpeg|jpg|gif|png|webp)/i) ||
+              att.type === 'video' ||
+              att.url.match(/\.(jpeg|jpg|gif|png|webp|mp4)/i) ||
               att.url.includes('zaloapp.com') ||
               att.url.includes('zdn.vn') ||
               att.url.includes('zadn.vn')
@@ -397,7 +541,7 @@ const plugin = definePluginEntry({
           });
         }
 
-        // 2. Check markdown images and raw Zalo image links
+        // 2. Check markdown images/videos and raw Zalo media links
         if (content) {
           const regex = /!\[.*?\]\((https?:\/\/[^\s)]+)\)/g;
           let match;
@@ -408,8 +552,8 @@ const plugin = definePluginEntry({
 
           let textOnly = content.replace(regex, '').trim();
 
-          // Lọc tiếp các link ảnh thô (do Zalo tự chuyển thành text)
-          const rawImgRegex = /(https?:\/\/[^\s]+(?:zaloapp\.com|zdn\.vn|zadn\.vn)[^\s]*|https?:\/\/[^\s]+\.(?:jpeg|jpg|gif|png|webp)(?:\?[^\s]*)?)/gi;
+          // Lọc tiếp các link media thô (do Zalo tự chuyển thành text)
+          const rawImgRegex = /(https?:\/\/[^\s]+(?:zaloapp\.com|zdn\.vn|zadn\.vn)[^\s]*|https?:\/\/[^\s]+\.(?:jpeg|jpg|gif|png|webp|mp4)(?:\?[^\s]*)?)/gi;
           let rawMatch;
           while ((rawMatch = rawImgRegex.exec(textOnly)) !== null) {
             draft.files.push(rawMatch[1]);
@@ -459,7 +603,13 @@ const plugin = definePluginEntry({
             const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://zalo.me/' } });
             if (!res.ok) return null;
             const ct = res.headers.get('content-type') || '';
-            const ext = ct.includes('png') ? '.png' : ct.includes('gif') ? '.gif' : ct.includes('webp') ? '.webp' : '.jpg';
+            let ext = '.jpg';
+            if (ct.includes('png')) ext = '.png';
+            else if (ct.includes('gif')) ext = '.gif';
+            else if (ct.includes('webp')) ext = '.webp';
+            else if (ct.includes('mp4')) ext = '.mp4';
+            else if (url.includes('.mp4')) ext = '.mp4';
+
             const tmp = path.join(__dirname, `_tmp_${Date.now()}${ext}`);
             fs.writeFileSync(tmp, Buffer.from(await res.arrayBuffer()));
             return { tmp, ext };
@@ -468,10 +618,10 @@ const plugin = definePluginEntry({
         async function _telegraph(filePath, ext) {
           try {
             const buf = fs.readFileSync(filePath);
-            const mime = { '.jpg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif', '.webp': 'image/webp' }[ext] || 'image/jpeg';
+            const mime = { '.jpg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif', '.webp': 'image/webp', '.mp4': 'video/mp4' }[ext] || 'image/jpeg';
             const boundary = `----Boundary${Date.now()}`;
             const body = Buffer.concat([
-              Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="img${ext}"\r\nContent-Type: ${mime}\r\n\r\n`),
+              Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="media${ext}"\r\nContent-Type: ${mime}\r\n\r\n`),
               buf,
               Buffer.from(`\r\n--${boundary}--\r\n`)
             ]);
